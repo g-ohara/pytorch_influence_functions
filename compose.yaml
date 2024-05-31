@@ -1,0 +1,21 @@
+services:
+  rye-docker:
+    image: genjiohara/rye
+    container_name: pytorch_influence_functions-pyright
+    volumes:
+      - .:${PWD}
+    working_dir: ${PWD}
+    tty: true
+  rye-docker-cuda:
+    image: genjiohara/rye-cuda
+    container_name: rye-cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - .:${PWD}
+    working_dir: ${PWD}

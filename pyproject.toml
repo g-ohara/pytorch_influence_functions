@@ -1,0 +1,33 @@
+[project]
+name = "pytorch_influence_functions"
+version = "0.1.0"
+description = "A fork of nimarb/pytorch_influence_functions."
+dependencies = [
+    "torch>=2.3.0",
+    "torchvision>=0.18.0",
+    "matplotlib>=3.8.4",
+    "tqdm>=4.66.2",
+]
+readme = "README.md"
+requires-python = ">= 3.12"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.rye]
+managed = true
+dev-dependencies = [
+    "pyright>=1.1.361",
+    "black>=24.4.2",
+    "isort>=5.13.2",
+]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/causal_data_deletion"]
+
+[tool.black]
+line-length = 79
