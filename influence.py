@@ -2,6 +2,7 @@
 
 import copy
 import csv
+import os
 from functools import partial
 
 import torch
@@ -100,12 +101,16 @@ def main():
     learner = learning.Learner(dataset_str)
     train_list, test_list = learner.get_data()
 
+    # Make output directory if it doesn't exist
+    output_dir = f"output/{dataset_str}"
+    os.makedirs(output_dir, exist_ok=True)
+
     print("Size of training data: ", len(train_list))
     print("Size of test     data: ", len(test_list))
 
     # train model
     model = load_or_train(
-        f"output/{dataset_str}/original-model",
+        f"{output_dir}/original-model",
         learner.device,
         partial(learner.train_model, remove_index=None),
         learner.new_model,
@@ -113,7 +118,7 @@ def main():
 
     # Get predictions for test data
     test_pred = load_or_predict(
-        f"output/{dataset_str}/test-predictions",
+        f"{output_dir}/test-predictions",
         learner.device,
         model,
         test_list,
@@ -151,7 +156,7 @@ def main():
         # clone model learns target sample until it is correctly classified
         print("Training additionally...")
         updated = load_or_train(
-            f"output/{dataset_str}/updated-model-{i:03d}",
+            f"{output_dir}/updated-model-{i:03d}",
             learner.device,
             learn_clone,
             learner.new_model,
@@ -159,7 +164,7 @@ def main():
 
         print("Saving images...")
         save_image(
-            f"output/{dataset_str}/target-sample-{i:03d}.png",
+            f"{output_dir}/target-sample-{i:03d}.png",
             (x, y),
             model(x).argmax(1).item(),
             dataset_str,
@@ -184,7 +189,7 @@ def main():
             for j, idx in enumerate(sorted_idxs[:10]):
                 trg_x, trg_y = train_list[idx]
                 save_image(
-                    f"output/{dataset_str}/grad-{i:03d}-{j:03d}.png",
+                    f"{output_dir}/grad-{i:03d}-{j:03d}.png",
                     (trg_x, trg_y),
                     model(trg_x).argmax(1).item(),
                     dataset_str,
@@ -201,20 +206,20 @@ def main():
             best_sizes.append(float(best_size))
 
             # Save best_sizes in a text file
-            with open(f"output/{dataset_str}/best-idx-{i:03d}.txt", "w") as f:
+            with open(f"{output_dir}/best-idx-{i:03d}.txt", "w") as f:
                 f.write(str(best_size))
 
             return learner.train_model(sorted_idxs[:best_size])
 
         def new_model() -> torch.nn.Module:
-            with open(f"output/{dataset_str}/best-idx-{i:03d}.txt") as f:
+            with open(f"{output_dir}/best-idx-{i:03d}.txt") as f:
                 best_size = int(f.read())
                 best_sizes.append(float(best_size))
             return learner.new_model()
 
         print("Gradient-based retraining...")
         new_retrain = load_or_train(
-            f"output/{dataset_str}/new-retrain-{i:03d}",
+            f"{output_dir}/new-retrain-{i:03d}",
             learner.device,
             retrain_model_by_gradient,
             new_model,
