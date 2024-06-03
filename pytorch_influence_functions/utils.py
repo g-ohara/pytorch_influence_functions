@@ -1,12 +1,17 @@
-import sys
 import json
 import logging
-from pathlib import Path
+import sys
 from datetime import datetime as dt
+from pathlib import Path
 
 
-def save_json(json_obj, json_path, append_if_exists=False,
-              overwrite_if_exists=False, unique_fn_if_exists=True):
+def save_json(
+    json_obj,
+    json_path,
+    append_if_exists=False,
+    overwrite_if_exists=False,
+    unique_fn_if_exists=True,
+):
     """Saves a json file
 
     Arguments:
@@ -32,30 +37,33 @@ def save_json(json_obj, json_path, append_if_exists=False,
         append_if_exists = False
         if json_path.exists():
             time = dt.now().strftime("%Y-%m-%d-%H-%M-%S")
-            json_path = json_path.parents[0] / f'{str(json_path.stem)}_{time}'\
-                                               f'{str(json_path.suffix)}'
+            json_path = (
+                json_path.parents[0] / f"{str(json_path.stem)}_{time}"
+                f"{str(json_path.suffix)}"
+            )
 
     if overwrite_if_exists:
         append_if_exists = False
-        with open(json_path, 'w+') as fout:
+        with open(json_path, "w+") as fout:
             json.dump(json_obj, fout, indent=2)
         return
 
     if append_if_exists:
         if json_path.exists():
-            with open(json_path, 'r') as fin:
+            with open(json_path, "r") as fin:
                 read_file = json.load(fin)
             read_file.update(json_obj)
-            with open(json_path, 'w+') as fout:
+            with open(json_path, "w+") as fout:
                 json.dump(read_file, fout, indent=2)
             return
 
-    with open(json_path, 'w+') as fout:
+    with open(json_path, "w+") as fout:
         json.dump(json_obj, fout, indent=2)
 
 
-def display_progress(text, current_step, last_step, enabled=True,
-                     fix_zero_start=True):
+def display_progress(
+    text, current_step, last_step, enabled=True, fix_zero_start=True
+):
     """Draws a progress indicator on the screen with the text preceeding the
     progress
 
@@ -77,21 +85,23 @@ def display_progress(text, current_step, last_step, enabled=True,
         current_step = current_step + 1
 
     term_line_len = 80
-    final_chars = [':', ';', ' ', '.', ',']
+    final_chars = [":", ";", " ", ".", ","]
     if text[-1:] not in final_chars:
-        text = text + ' '
+        text = text + " "
     if len(text) < term_line_len:
-        bar_len = term_line_len - (len(text)
-                                   + len(str(current_step))
-                                   + len(str(last_step))
-                                   + len("  / "))
+        bar_len = term_line_len - (
+            len(text)
+            + len(str(current_step))
+            + len(str(last_step))
+            + len("  / ")
+        )
     else:
         bar_len = 30
     filled_len = int(round(bar_len * current_step / float(last_step)))
-    bar = '=' * filled_len + '.' * (bar_len - filled_len)
+    bar = "=" * filled_len + "." * (bar_len - filled_len)
 
     bar = f"{text}[{bar:s}] {current_step:d} / {last_step:d}"
-    if current_step < last_step-1:
+    if current_step < last_step - 1:
         # Erase to end of line and print
         sys.stdout.write("\033[K" + bar + "\r")
     else:
@@ -107,33 +117,38 @@ def init_logging(filename=None):
         filename: str, a filename can be set to output the log information to
             a file instead of stdout"""
     log_lvl = logging.INFO
-    log_format = '%(asctime)s: %(message)s'
+    log_format = "%(asctime)s: %(message)s"
     if filename:
-        logging.basicConfig(handlers=[logging.FileHandler(filename),
-                                      logging.StreamHandler(sys.stdout)],
-                            level=log_lvl,
-                            format=log_format)
+        logging.basicConfig(
+            handlers=[
+                logging.FileHandler(filename),
+                logging.StreamHandler(sys.stdout),
+            ],
+            level=log_lvl,
+            format=log_format,
+        )
     else:
-        logging.basicConfig(stream=sys.stdout, level=log_lvl,
-                            format=log_format)
+        logging.basicConfig(
+            stream=sys.stdout, level=log_lvl, format=log_format
+        )
 
 
 def get_default_config():
     """Returns a default config file"""
     config = {
-        'outdir': 'outdir',
-        'seed': 42,
-        'gpu': 0,
-        'dataset': 'CIFAR10',
-        'num_classes': 10,
-        'test_sample_num': 1,
-        'test_start_index': 0,
-        'recursion_depth': 1,
-        'r_averaging': 1,
-        'scale': None,
-        'damp': None,
-        'calc_method': 'img_wise',
-        'log_filename': None,
+        "outdir": "outdir",
+        "seed": 42,
+        "gpu": 0,
+        "dataset": "CIFAR10",
+        "num_classes": 10,
+        "test_sample_num": 1,
+        "test_start_index": 0,
+        "recursion_depth": 1,
+        "r_averaging": 1,
+        "scale": None,
+        "damp": None,
+        "calc_method": "img_wise",
+        "log_filename": None,
     }
 
     return config
