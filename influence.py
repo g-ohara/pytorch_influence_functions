@@ -7,8 +7,9 @@ from functools import partial
 
 import torch
 import torch.nn.functional as F
-import torch.utils.data
-import torchvision  # type: ignore
+import torchvision.datasets
+import torchvision.transforms
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 import learning
@@ -243,7 +244,7 @@ def main():
             transform=transform,
         )
 
-        trainloader = torch.utils.data.DataLoader(
+        trainloader: DataLoader[tuple[torch.Tensor, int]] = DataLoader(
             trainset, batch_size=batch_size, shuffle=False
         )
 
@@ -254,17 +255,16 @@ def main():
             transform=transform,
         )
 
-        testloader = torch.utils.data.DataLoader(
+        testloader: DataLoader[tuple[torch.Tensor, int]] = DataLoader(
             testset, batch_size=batch_size, shuffle=False
         )
 
         def retrain_model_by_influence() -> torch.nn.Module:
-            ptif_utils.init_logging()  # type: ignore
+            ptif_utils.init_logging()
             config = ptif_utils.get_default_config()
             config["gpu"] = -1
             print(config)
-            harmful: list[int]
-            _, harmful, _, _ = calc_if.calc_influence_single(
+            influences, _, _, _ = calc_if.calc_influence_single(
                 model,
                 trainloader,
                 testloader,
@@ -273,11 +273,17 @@ def main():
                 recursion_depth=config["recursion_depth"],
                 r=config["r_averaging"],
             )
+
+            harmful_indices = sorted(
+                range(len(influences)), key=lambda i: influences[i]
+            )
+
             # Get minimum size of subset of training dataset that need to be
             # removed to predict the right label for the target sample
             best_size = binary_search(
-                min(MAX_SIZE, len(harmful)),
-                lambda i: learner.train_model(harmful[:i])(x).argmax(1) == y,
+                min(MAX_SIZE, len(harmful_indices)),
+                lambda i: learner.train_model(harmful_indices[:i])(x).argmax(1)
+                == y,
             )
             print(f"We found {best_size} samples needed!")
             best_sizes.append(float(best_size))
@@ -288,7 +294,7 @@ def main():
             ) as f:
                 f.write(str(best_size))
 
-            return learner.train_model(harmful[:best_size])
+            return learner.train_model(harmful_indices[:best_size])
 
         print("Influence-based retraining...")
         new_retrain = load_or_train(

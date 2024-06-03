@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from torch.utils.data import DataLoader
 
 from pytorch_influence_functions.influence_function import grad_z, s_test
 from pytorch_influence_functions.utils import display_progress, save_json
@@ -336,16 +337,16 @@ def calc_influence_function(
 
 
 def calc_influence_single(
-    model,
-    train_loader,
-    test_loader,
-    test_id_num,
-    gpu,
-    recursion_depth,
-    r,
-    s_test_vec=None,
-    time_logging=False,
-):
+    model: torch.nn.Module,
+    train_loader: DataLoader[tuple[torch.Tensor, int]],
+    test_loader: DataLoader[tuple[torch.Tensor, int]],
+    test_id_num: int,
+    gpu: int,
+    recursion_depth: int,
+    r: int,
+    s_test_vec: list[torch.Tensor] | None = None,
+    time_logging: bool = False,
+) -> tuple[list[float], list[float], list[float], int]:
     """Calculates the influences of all training data points on a single
     test dataset image.
 

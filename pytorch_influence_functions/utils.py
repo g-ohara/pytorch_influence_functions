@@ -3,6 +3,7 @@ import logging
 import sys
 from datetime import datetime as dt
 from pathlib import Path
+from typing import Any
 
 
 def save_json(
@@ -110,7 +111,7 @@ def display_progress(
     sys.stdout.flush()
 
 
-def init_logging(filename=None):
+def init_logging(filename: str | None = None) -> None:
     """Initialises log/stdout output
 
     Arguments:
@@ -133,7 +134,7 @@ def init_logging(filename=None):
         )
 
 
-def get_default_config():
+def get_default_config() -> dict[str, Any]:
     """Returns a default config file"""
     config = {
         "outdir": "outdir",
