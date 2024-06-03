@@ -418,7 +418,7 @@ def calc_influence_single(
             )
             / train_dataset_size
         )
-        influences.append(tmp_influence)
+        influences.append(tmp_influence.item())
         display_progress("Calc. influence function: ", i, train_dataset_size)
 
     harmful = np.argsort(influences)

@@ -262,14 +262,14 @@ def main():
         def retrain_model_by_influence() -> torch.nn.Module:
             ptif_utils.init_logging()
             config = ptif_utils.get_default_config()
-            config["gpu"] = -1
+            config["gpu"] = 0 if learner.device == "cuda" else -1
             print(config)
             influences, _, _, _ = calc_if.calc_influence_single(
                 model,
                 trainloader,
                 testloader,
                 test_id_num=mis_idx,
-                gpu=-1,
+                gpu=config["gpu"],
                 recursion_depth=config["recursion_depth"],
                 r=config["r_averaging"],
             )
