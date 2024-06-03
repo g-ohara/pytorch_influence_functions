@@ -1,49 +1,19 @@
 # pyright: strict
 
 import copy
-import csv
 import os
 from functools import partial
 
 import torch
-import torch.nn.functional as F
 import torchvision.datasets
 import torchvision.transforms
 from torch.utils.data import DataLoader
-from tqdm import tqdm
 
 import learning
+from grad_retrain import calc_grad, load_or_calc_cos_sims
 from pytorch_influence_functions import calc_influence_function as calc_if
 from pytorch_influence_functions import utils as ptif_utils
 from utils import *
-
-
-def calc_grad(
-    model: torch.nn.Module,
-    loss_fn: torch.nn.Module,
-    trg: tuple[torch.Tensor, torch.Tensor],
-) -> list[torch.Tensor]:
-
-    x, y = trg
-    model.zero_grad()
-    loss = loss_fn(model(x), y)
-    loss.backward()
-
-    grad: list[torch.Tensor] = []
-    for param in model.parameters():
-        if param.grad is None:
-            raise ValueError("param.grad is None")
-        grad.append(torch.flatten(param.grad))
-    return grad
-
-
-def calc_cos_sim(
-    grad1: list[torch.Tensor], grad2: list[torch.Tensor]
-) -> float:
-    sum_cos_sim = 0
-    for g1, g2 in zip(grad1, grad2):
-        sum_cos_sim += F.cosine_similarity(g1, g2, dim=0).item()
-    return sum_cos_sim / len(grad1)
 
 
 def binary_search(length: int, to_left: Callable[[int], bool]) -> int:
@@ -67,28 +37,41 @@ def binary_search(length: int, to_left: Callable[[int], bool]) -> int:
     return left
 
 
-def load_or_calc_cos_sims(
-    trg_idx: int,
-    grad: Callable[[int], list[torch.Tensor]],
-    train_list: list[tuple[torch.Tensor, torch.Tensor]],
-    dataset_str: str,
-) -> list[float]:
-    filename = f"output/{dataset_str}/cos-sims-{trg_idx:03d}.csv"
-    cos_sims: list[float] = []
-    try:
-        with open(filename, "r") as f:
-            reader = csv.reader(f)
-            for row in reader:
-                cos_sims = list(map(float, row))
-            return cos_sims
-    except FileNotFoundError:
-        trg_grad = grad(trg_idx)
-        for i in tqdm(range(len(train_list))):
-            cos_sims.append(calc_cos_sim(grad(i), trg_grad))
-        with open(filename, "w") as f:
-            writer = csv.writer(f)
-            writer.writerow(cos_sims)
-    return cos_sims
+def opt_subset(
+    sorted_idxs: list[int],
+    trg: tuple[torch.Tensor, torch.Tensor],
+    learner: learning.Learner,
+    filename: str,
+    max_size: int,
+) -> int:
+
+    # Get minimum size of subset of training dataset that need to be
+    # removed to predict the right label for the target sample
+    x, y = trg
+    best_size = binary_search(
+        min(max_size, len(sorted_idxs)),
+        lambda i: learner.train_model(sorted_idxs[:i])(x).argmax(1) == y,
+    )
+
+    # Print and save the subset size into a file
+    print(f"We found {best_size} samples needed!")
+    with open(filename, "w") as f:
+        f.write(str(best_size))
+
+    return best_size
+
+
+def retrain_model(
+    sort_fn: Callable[[], list[int]],
+    trg: tuple[torch.Tensor, torch.Tensor],
+    learner: learning.Learner,
+    filename: str,
+    max_size: int,
+) -> torch.nn.Module:
+
+    sorted_idxs = sort_fn()
+    best_size = opt_subset(sorted_idxs, trg, learner, filename, max_size)
+    return learner.train_model(sorted_idxs[:best_size])
 
 
 def main():
@@ -136,8 +119,10 @@ def main():
 
     updated_accs: list[float] = []
     new_retrain_accs: list[float] = []
+    infl_accs: list[float] = []
 
     best_sizes: list[float] = []
+    infl_best_sizes: list[float] = []
 
     for i, mis_idx in enumerate(mis_idxs):
 
@@ -173,8 +158,7 @@ def main():
 
         MAX_SIZE = 100
 
-        def retrain_model_by_gradient() -> torch.nn.Module:
-
+        def sort_by_grad() -> list[int]:
             # If cosine similarities are already calculated, load them
             # Otherwise calculate and save them
             cos_sims: list[float] = load_or_calc_cos_sims(
@@ -195,21 +179,18 @@ def main():
                     model(trg_x).argmax(1).item(),
                     dataset_str,
                 )
+            return sorted_idxs
 
-            # Get minimum size of subset of training dataset that need to be
-            # removed to predict the right label for the target sample
-            best_size = binary_search(
-                min(MAX_SIZE, len(sorted_idxs)),
-                lambda i: learner.train_model(sorted_idxs[:i])(x).argmax(1)
-                == y,
+        def retrain_model_by_gradient() -> torch.nn.Module:
+
+            sorted_idxs = sort_by_grad()
+            best_size = opt_subset(
+                sorted_idxs,
+                (x, y),
+                learner,
+                f"{output_dir}/grad-best-idx-{i:03d}.txt",
+                MAX_SIZE,
             )
-            print(f"We found {best_size} samples needed!")
-            best_sizes.append(float(best_size))
-
-            # Save best_sizes in a text file
-            with open(f"{output_dir}/best-idx-{i:03d}.txt", "w") as f:
-                f.write(str(best_size))
-
             return learner.train_model(sorted_idxs[:best_size])
 
         def new_model() -> torch.nn.Module:
@@ -259,7 +240,7 @@ def main():
             testset, batch_size=batch_size, shuffle=False
         )
 
-        def retrain_model_by_influence() -> torch.nn.Module:
+        def sort_by_influence() -> list[int]:
             ptif_utils.init_logging()
             config = ptif_utils.get_default_config()
             config["gpu"] = 0 if learner.device == "cuda" else -1
@@ -273,35 +254,32 @@ def main():
                 recursion_depth=config["recursion_depth"],
                 r=config["r_averaging"],
             )
+            return sorted(range(len(influences)), key=lambda i: influences[i])
 
-            harmful_indices = sorted(
-                range(len(influences)), key=lambda i: influences[i]
+        def retrain_model_by_influence() -> torch.nn.Module:
+
+            sorted_idxs = sort_by_influence()
+            best_size = opt_subset(
+                sorted_idxs,
+                (x, y),
+                learner,
+                f"{output_dir}/infl-best-idx-{i:03d}.txt",
+                MAX_SIZE,
             )
+            return learner.train_model(sorted_idxs[:best_size])
 
-            # Get minimum size of subset of training dataset that need to be
-            # removed to predict the right label for the target sample
-            best_size = binary_search(
-                min(MAX_SIZE, len(harmful_indices)),
-                lambda i: learner.train_model(harmful_indices[:i])(x).argmax(1)
-                == y,
-            )
-            print(f"We found {best_size} samples needed!")
-            best_sizes.append(float(best_size))
-
-            # Save best_sizes in a text file
-            with open(
-                f"output/{dataset_str}/influence-best-idx-{i:03d}.txt", "w"
-            ) as f:
-                f.write(str(best_size))
-
-            return learner.train_model(harmful_indices[:best_size])
+        def new_influence_model() -> torch.nn.Module:
+            with open(f"{output_dir}/infl-best-idx-{i:03d}.txt") as f:
+                best_size = int(f.read())
+                best_sizes.append(float(best_size))
+            return learner.new_model()
 
         print("Influence-based retraining...")
-        new_retrain = load_or_train(
+        infl_retrain = load_or_train(
             f"output/{dataset_str}/influence-{i:03d}",
             learner.device,
             retrain_model_by_influence,
-            new_model,
+            new_influence_model,
         )
 
         print("Predictions:")
@@ -314,16 +292,23 @@ def main():
 
         updated_acc = test_accuracy(updated, test_list)
         new_retrain_acc = test_accuracy(new_retrain, test_list)
+        infl_acc = test_accuracy(infl_retrain, test_list)
         print("Test accuracies:")
         print(f" Original model:  {original_acc}")
         print(f" Updated model:   {updated_acc}")
-        print(f" Retrained model: {new_retrain_acc}")
+        print(f" Gradient-based:  {new_retrain_acc}")
+        print(f" Influence-based: {infl_acc}")
         updated_accs.append(updated_acc)
         new_retrain_accs.append(new_retrain_acc)
+        infl_accs.append(infl_acc)
         clean_accs = [
             acc for n, acc in zip(best_sizes, new_retrain_accs) if n < MAX_SIZE
         ]
         clean_idxs = [n for n in best_sizes if n < MAX_SIZE]
+        clean_infl_accs = [
+            acc for n, acc in zip(infl_best_sizes, infl_accs) if n < MAX_SIZE
+        ]
+        clean_infl_idxs = [n for n in infl_best_sizes if n < MAX_SIZE]
         if clean_idxs:
             print(
                 f"Updated accuracy: Avg: {sum(updated_accs)/len(updated_accs)}, "
@@ -334,11 +319,25 @@ def main():
                 f"std: {torch.std(torch.tensor(clean_accs))}"
             )
             print(
-                f"Best indices: Avg: {sum(clean_idxs) / len(clean_idxs)}, "
-                f"std: {torch.std(torch.tensor(clean_idxs))}, "
-                f"Max: {max(clean_idxs)}, Min: {min(clean_idxs)}"
+                f"Influence-based accuracy: Avg: {sum(infl_accs)/len(infl_accs)}, "
+                f"std: {torch.std(torch.tensor(infl_accs))}"
             )
-        print(f"Success rate: {len(clean_accs) / len(best_sizes)}")
+            print("Best indices")
+            print(" Gradient-based")
+            print(
+                f"  Avg: {sum(clean_idxs) / len(clean_idxs)}, "
+                f"  std: {torch.std(torch.tensor(clean_idxs))}, "
+                f"  Max: {max(clean_idxs)}, Min: {min(clean_idxs)}"
+            )
+            print(" Influence-based")
+            print(
+                f"  Avg: {sum(clean_infl_idxs) / len(clean_infl_idxs)}, "
+                f"  std: {torch.std(torch.tensor(clean_infl_idxs))}, "
+                f"  Max: {max(clean_infl_idxs)}, Min: {min(clean_infl_idxs)}"
+            )
+        print("Success rate")
+        print(f" Gradient-based:  {len(clean_accs) / len(best_sizes)}")
+        print(f" Influence-based: {len(clean_infl_accs) / len(clean_idxs)}")
         print(sorted(best_sizes))
 
 

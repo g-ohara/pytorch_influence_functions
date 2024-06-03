@@ -5,14 +5,28 @@ from typing import Callable
 import matplotlib.pyplot as plt
 import torch
 import torch.utils.data
+from torch.nn import Module
 
 
 def load_or_train(
     filename: str,
     device: str,
-    train_model: Callable[[], torch.nn.Module],
-    new_model: Callable[[], torch.nn.Module],
-) -> torch.nn.Module:
+    train_model: Callable[[], Module],
+    new_model: Callable[[], Module],
+) -> Module:
+    """Load the trained model if it exists, otherwise train a new one.
+
+    Args:
+        filename (str): The name of the file to save the model to.
+        device (str): The device to use for training ("cpu" or "cuda").
+        train_model (Callable[[], Module]): The function to train the
+            model called if the trained model does not exist.
+        new_model (Callable[[], Module]): The function to create the
+            new model called if the trained model exists.
+
+    Returns:
+        Module: The trained model.
+    """
     filename += f"-{device}.pth"
     try:
         print("Loading model...")
