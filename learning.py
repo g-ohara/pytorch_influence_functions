@@ -1,8 +1,12 @@
 # pyright: strict
 
+import copy
+
 import torch
 import torch.utils.data
-import torchvision  # type: ignore
+import torchvision
+import torchvision.datasets
+import torchvision.transforms
 from tqdm import tqdm
 
 type DataLoader = torch.utils.data.DataLoader[torch.Tensor]
@@ -82,30 +86,29 @@ class Learner:
             transform=torchvision.transforms.ToTensor(),
         )
 
-    def get_data(self):
-
-        train_dataloader: DataLoader = torch.utils.data.DataLoader(
+        self.train_dataloader: DataLoader = torch.utils.data.DataLoader(
             dataset=self.training_data
         )
-        test_dataloader: DataLoader = torch.utils.data.DataLoader(
+        self.test_dataloader: DataLoader = torch.utils.data.DataLoader(
             dataset=self.test_data
         )
-        train_list = [
-            (x.to(self.device), y.to(self.device)) for x, y in train_dataloader
+
+        self.train_list = [
+            (x.to(self.device), y.to(self.device))
+            for x, y in self.train_dataloader
         ]
-        test_list = [
-            (x.to(self.device), y.to(self.device)) for x, y in test_dataloader
+        self.test_list = [
+            (x.to(self.device), y.to(self.device))
+            for x, y in self.test_dataloader
         ]
-        return train_list, test_list
+
+    def get_data(self):
+        return copy.deepcopy(self.train_list), copy.deepcopy(self.test_list)
 
     def train_model(self, remove_index: list[int] | None):
         batch_size = 64
         if remove_index is None:
-            train_dataloader: DataLoader = torch.utils.data.DataLoader(
-                dataset=self.training_data,
-                batch_size=batch_size,
-                shuffle=False,
-            )
+            train_dataloader = self.train_dataloader
         else:
             print(f"{len(remove_index)} samples removed.")
             same_list = [
@@ -118,10 +121,6 @@ class Learner:
                 batch_size=batch_size,
                 shuffle=False,
             )
-
-        test_dataloader: DataLoader = torch.utils.data.DataLoader(
-            dataset=self.test_data, batch_size=batch_size, shuffle=False
-        )
 
         model = self.new_model()
 
@@ -149,12 +148,12 @@ class Learner:
                 loss.backward()
                 optimizer.step()
 
-        def test(dataloader: DataLoader, model: torch.nn.Module):
-            size = len(dataloader.dataset)  # type: ignore
+        def test(model: torch.nn.Module):
+            size = len(self.test_list)
             model.eval()
             test_loss, correct = 0, 0
             with torch.no_grad():
-                for x, y in dataloader:
+                for x, y in self.test_dataloader:
                     x, y = x.to(self.device), y.to(self.device)
                     pred = model(x)
                     test_loss += self.loss_fn(pred, y).item()
@@ -171,7 +170,7 @@ class Learner:
 
         for _ in tqdm(range(self.epochs)):
             train(train_dataloader, model, self.loss_fn, optimizer)
-        test(test_dataloader, model)
+        test(model)
         print("Done!")
         return model
 

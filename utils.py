@@ -9,15 +9,19 @@ from torch.nn import Module
 
 
 def load_or_train(
-    filename: str,
-    device: str,
-    train_model: Callable[[], Module],
+    train_model: Callable[[], tuple[Module, int] | None],
     new_model: Callable[[], Module],
-) -> Module:
-    """Load the trained model if it exists, otherwise train a new one.
+    model_filename: str,
+    size_filename: str | None = None,
+    max_size: int | None = None,
+) -> tuple[Module, int] | None:
+    """Load the trained model if it exists, otherwise train a new one
+    and save it to a file.
 
     Args:
-        filename (str): The name of the file to save the model to.
+        model_filename (str): The name of the file to save the model to.
+        size_filename (str): The name of the file to save the best size
+            of the subset to.
         device (str): The device to use for training ("cpu" or "cuda").
         train_model (Callable[[], Module]): The function to train the
             model called if the trained model does not exist.
@@ -27,19 +31,42 @@ def load_or_train(
     Returns:
         Module: The trained model.
     """
-    filename += f"-{device}.pth"
     try:
+
+        # Load model
         print("Loading model...")
         model = new_model()
-        model.load_state_dict(torch.load(filename))  # type: ignore
+        model.load_state_dict(torch.load(model_filename))  # type: ignore
         print("Model loaded.")
-        return model
+
+        # Load the best size of the subset if size_filename is provided
+        if size_filename is None:
+            return model, 0
+        else:
+            with open(size_filename, "r") as f:
+                best_size = int(f.read())
+            if max_size is not None and best_size > max_size:
+                raise ValueError("Loaded best size exceeds max size.")
+            return model, best_size
+
     except FileNotFoundError:
         print("Model not found. Learning model...")
-        model = train_model()
-        torch.save(model.state_dict(), filename)  # type: ignore
-        print("Model learned.")
-        return model
+
+        # Train model if the trained model does not exist
+        result = train_model()
+
+        # Return None if training failed, otherwise save and return
+        # trained model and the best size of the subset
+        if result is None:
+            return None
+        else:
+            model, best_size = result
+            torch.save(model.state_dict(), model_filename)  # type: ignore
+            if size_filename is not None:
+                with open(size_filename, "w") as f:
+                    f.write(str(best_size))
+            print("Model learned.")
+            return model, best_size
 
 
 def load_or_predict(
